@@ -46,7 +46,7 @@ async def analyze_meeting(meeting_text: str) -> str:
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
         )
-        return completion.choices[0].message["content"].strip()
+        return completion.choices[0].message.content.strip()
     except Exception as exc:  # pragma: no cover - проблемы сети/токена
         return f"Ошибка анализа: {exc}"
 
