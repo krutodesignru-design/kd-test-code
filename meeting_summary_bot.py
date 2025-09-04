@@ -181,6 +181,35 @@ async def send_daily_news(context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_message(chat_id=context.job.chat_id, text=text)
 
 
+async def news_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /new_today: присылает свежие новости немедленно."""
+    # удаляем сообщение пользователя с командой
+    try:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=update.message.message_id,
+        )
+    except Exception:
+        pass
+
+    # собираем новости и отправляем их в чат
+    items = collect_news()
+    text = await format_news(items)
+    await update.effective_chat.send_message(text=text)
+
+    # регистрируем ежедневную рассылку, если ещё не сделано
+    jobs = context.application.bot_data.setdefault("news_jobs", set())
+    chat_id = update.effective_chat.id
+    if chat_id not in jobs:
+        context.application.job_queue.run_daily(
+            send_daily_news,
+            time=time(hour=10, minute=0, tzinfo=ZoneInfo("Europe/Moscow")),
+            chat_id=chat_id,
+            name=f"daily_news_{chat_id}",
+        )
+        jobs.add(chat_id)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Команда /analyze_meeting: удаляет команду и просит текст встречи."""
     # удаляем сообщение с командой пользователя
@@ -307,6 +336,8 @@ def main() -> None:
     application.add_handler(conv_handler)
     # обработчик /stop вне диалога
     application.add_handler(CommandHandler("stop", stop))
+    # команда для немедленного запроса новостей
+    application.add_handler(CommandHandler("new_today", news_today))
 
     application.run_polling()  # Запуск бота и ожидание новых сообщений
 
