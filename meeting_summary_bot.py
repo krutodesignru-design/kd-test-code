@@ -44,7 +44,7 @@ async def analyze_meeting(meeting_text: str) -> str:
         completion = client.chat.completions.create(
             model=OPENAI_MODEL,  # название модели задаётся в config.py
             messages=[{"role": "user", "content": prompt}],
-            temperature=0,
+            # модель не поддерживает параметр temperature, используем значение по умолчанию
         )
         return completion.choices[0].message.content.strip()
     except Exception as exc:  # pragma: no cover - проблемы сети/токена
