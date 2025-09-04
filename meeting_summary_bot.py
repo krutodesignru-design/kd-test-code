@@ -1,3 +1,4 @@
+import asyncio
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -41,10 +42,11 @@ async def analyze_meeting(meeting_text: str) -> str:
 
         client = openai.OpenAI(api_key=api_key)
         prompt = build_report_prompt(meeting_text)
-        completion = client.chat.completions.create(
+        # обращаемся к OpenAI в отдельном потоке, чтобы не блокировать обработку других сообщений
+        completion = await asyncio.to_thread(
+            client.chat.completions.create,
             model=OPENAI_MODEL,  # название модели задаётся в config.py
             messages=[{"role": "user", "content": prompt}],
-            # модель не поддерживает параметр temperature, используем значение по умолчанию
         )
         return completion.choices[0].message.content.strip()
     except Exception as exc:  # pragma: no cover - проблемы сети/токена
@@ -91,22 +93,27 @@ async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     # отправляем сообщение о том, что идёт обработка
     processing_msg = await update.effective_chat.send_message("Встреча обрабатывается...")
+    context.user_data["processing_id"] = processing_msg.message_id
 
     summary = await analyze_meeting(meeting_text)
 
-    # удаляем сообщение об обработке, если оно ещё существует
-    try:
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id, message_id=processing_msg.message_id
-        )
-    except Exception:
-        pass
+    # если пользователь успел отправить /stop, не присылаем отчёт
+    if context.user_data.pop("stopped", False):
+        return ConversationHandler.END
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=summary
         # отправляем отчёт без форматирования Markdown, чтобы избежать ошибок разметки
     )
+
+    # удаляем сообщение об обработке после отправки отчёта
+    processing_id = context.user_data.pop("processing_id", None)
+    if processing_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=processing_id)
+        except Exception:
+            pass
     return ConversationHandler.END
 
 
@@ -120,11 +127,22 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     except Exception:
         pass
 
+    # помечаем, что анализ нужно прекратить
+    context.user_data["stopped"] = True
+
     # удаляем подсказку, если она ещё висит
     prompt_id = context.user_data.pop("prompt_id", None)
     if prompt_id:
         try:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=prompt_id)
+        except Exception:
+            pass
+
+    # удаляем сообщение об обработке, если оно есть
+    processing_id = context.user_data.pop("processing_id", None)
+    if processing_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=processing_id)
         except Exception:
             pass
 
@@ -135,7 +153,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN не задан")
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application = ApplicationBuilder().token(BOT_TOKEN).concurrent_updates(True).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("analyze_meeting", start)],
@@ -147,6 +165,8 @@ def main() -> None:
         fallbacks=[CommandHandler("stop", stop)],
     )
     application.add_handler(conv_handler)
+    # обработчик /stop вне диалога
+    application.add_handler(CommandHandler("stop", stop))
 
     application.run_polling()  # Запуск бота и ожидание новых сообщений
 
