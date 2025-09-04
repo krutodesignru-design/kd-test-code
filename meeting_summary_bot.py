@@ -92,8 +92,8 @@ async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     summary = await analyze_meeting(meeting_text)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=summary,
-        parse_mode=constants.ParseMode.MARKDOWN,
+        text=summary
+        # отправляем отчёт без форматирования Markdown, чтобы избежать ошибок разметки
     )
     return ConversationHandler.END
 
