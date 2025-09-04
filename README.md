@@ -10,7 +10,7 @@
    pip install python-telegram-bot openai
    ```
 
-2. Задайте переменные окружения `BOT_TOKEN` и при необходимости `OPENAI_API_KEY`.
+2. Укажите токены в файле `config.py` (или задайте переменные окружения `BOT_TOKEN` и `OPENAI_API_KEY`).
 
 3. Запустите бота:
 

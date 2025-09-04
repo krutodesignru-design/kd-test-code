@@ -1,4 +1,3 @@
-import os
 import asyncio
 
 from telegram import Update, constants
@@ -10,6 +9,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+from config import BOT_TOKEN, OPENAI_API_KEY
 
 # Conversation states
 WAITING_TEXT = 1
@@ -33,8 +34,8 @@ async def analyze_meeting(meeting_text: str) -> str:
     The function tries to use OpenAI's ChatGPT model if an ``OPENAI_API_KEY`` is
     available. Otherwise, it falls back to returning a placeholder message.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    api_key = OPENAI_API_KEY
+    if not api_key or api_key == "YOUR_OPENAI_API_KEY":
         return "Не удалось провести анализ: отсутствует OPENAI_API_KEY."
 
     try:
@@ -82,8 +83,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def main() -> None:
-    token = os.environ["BOT_TOKEN"]
-    application = ApplicationBuilder().token(token).build()
+    if not BOT_TOKEN or BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN":
+        raise RuntimeError("BOT_TOKEN is not set")
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("analyze_meeting", start)],
