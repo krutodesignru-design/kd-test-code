@@ -7,3 +7,5 @@ import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Название модели OpenAI, по умолчанию используется gpt-5
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")

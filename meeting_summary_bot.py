@@ -8,7 +8,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, OPENAI_API_KEY
+from config import BOT_TOKEN, OPENAI_API_KEY, OPENAI_MODEL
 
 # Состояния диалога
 WAITING_TEXT = 1
@@ -42,7 +42,7 @@ async def analyze_meeting(meeting_text: str) -> str:
         client = openai.OpenAI(api_key=api_key)
         prompt = build_report_prompt(meeting_text)
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENAI_MODEL,  # название модели задаётся в config.py
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
         )
