@@ -35,7 +35,7 @@ async def analyze_meeting(meeting_text: str) -> str:
     available. Otherwise, it falls back to returning a placeholder message.
     """
     api_key = OPENAI_API_KEY
-    if not api_key or api_key == "YOUR_OPENAI_API_KEY":
+    if not api_key:
         return "Не удалось провести анализ: отсутствует OPENAI_API_KEY."
 
     try:
@@ -83,7 +83,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def main() -> None:
-    if not BOT_TOKEN or BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN":
+    if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not set")
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
