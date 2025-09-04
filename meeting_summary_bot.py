@@ -89,7 +89,19 @@ async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         except Exception:
             pass
 
+    # отправляем сообщение о том, что идёт обработка
+    processing_msg = await update.effective_chat.send_message("Встреча обрабатывается...")
+
     summary = await analyze_meeting(meeting_text)
+
+    # удаляем сообщение об обработке, если оно ещё существует
+    try:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id, message_id=processing_msg.message_id
+        )
+    except Exception:
+        pass
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=summary
@@ -98,9 +110,25 @@ async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return ConversationHandler.END
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена диалога."""
-    await update.message.reply_text("Отменено.")
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Команда /stop прекращает ожидание текста."""
+    # удаляем сообщение пользователя с командой /stop
+    try:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id, message_id=update.message.message_id
+        )
+    except Exception:
+        pass
+
+    # удаляем подсказку, если она ещё висит
+    prompt_id = context.user_data.pop("prompt_id", None)
+    if prompt_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=prompt_id)
+        except Exception:
+            pass
+
+    await update.effective_chat.send_message("Анализ остановлен, жду нового запроса")
     return ConversationHandler.END
 
 
@@ -111,8 +139,12 @@ def main() -> None:
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("analyze_meeting", start)],
-        states={WAITING_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_text)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={
+            WAITING_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_text)
+            ]
+        },
+        fallbacks=[CommandHandler("stop", stop)],
     )
     application.add_handler(conv_handler)
 
