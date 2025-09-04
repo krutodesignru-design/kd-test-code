@@ -1,5 +1,3 @@
-import asyncio
-
 from telegram import Update, constants
 from telegram.ext import (
     ApplicationBuilder,
@@ -82,7 +80,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-async def main() -> None:
+def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not set")
     application = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -94,11 +92,8 @@ async def main() -> None:
     )
     application.add_handler(conv_handler)
 
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    await application.updater.idle()
+    application.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
