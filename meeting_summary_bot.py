@@ -55,9 +55,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Команда /analyze_meeting: удаляет команду и просит текст встречи."""
     # удаляем сообщение с командой пользователя
     try:
-        await update.message.delete()
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=update.message.message_id,
+        )
     except Exception:
-        pass  # игнорируем, если нет прав
+        pass  # игнорируем, если нет прав или сообщение уже удалено
 
     # отправляем подсказку и сохраняем её id для последующего удаления
     prompt_msg = await update.effective_chat.send_message("Пришлите полный текст встречи.")
@@ -71,9 +74,12 @@ async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     # удаляем сообщение пользователя с текстом встречи
     try:
-        await update.message.delete()
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=update.message.message_id,
+        )
     except Exception:
-        pass  # игнорируем, если нет прав
+        pass  # игнорируем, если нет прав или сообщение уже удалено
 
     # удаляем ранее отправленную подсказку "Пришлите полный текст встречи"
     prompt_id = context.user_data.pop("prompt_id", None)
