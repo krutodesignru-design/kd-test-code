@@ -1,5 +1,6 @@
 import asyncio
 import calendar
+import re
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
@@ -57,6 +58,14 @@ def ensure_block_spacing(text: str) -> str:
             if nxt and (nxt[0].isdigit() or nxt.startswith(("🔎", "✅", "⚠️"))):
                 result.append("")
     return "\n".join(result).strip()
+
+
+def ensure_news_spacing(text: str) -> str:
+    """Добавляет пустые строки внутри блока новости и между новостями."""
+    text = re.sub(r"(📰[^\n]*\n)", r"\1\n", text)
+    text = re.sub(r"\n(Ссылка:)", r"\n\n\1", text)
+    text = re.sub(r"\n{2,}(📰)", r"\n\n\n\1", text)
+    return text.strip()
 
 
 async def analyze_meeting(meeting_text: str) -> str:
@@ -138,7 +147,10 @@ async def format_news(items: list[dict]) -> str:
         parts = []
         for it in items:
             parts.append(
-                "📰 {title} — {src}, {date}.\n{summary}\nСсылка: {link}\nИдея для KD: -".format(
+                (
+                    "📰 {title} — {src}, {date}.\n\n{summary}\n\n"
+                    "Ссылка: {link}\nИдея для KD: -"
+                ).format(
                     title=it["title"],
                     src=it["source"],
                     date=it["published"].strftime("%d.%m.%Y"),
@@ -146,7 +158,7 @@ async def format_news(items: list[dict]) -> str:
                     link=it["link"],
                 )
             )
-        return "\n\n".join(parts)
+        return ensure_news_spacing("\n\n\n".join(parts))
     try:
         import openai
 
@@ -160,8 +172,8 @@ async def format_news(items: list[dict]) -> str:
             )
         prompt = (
             "На основе следующих материалов сформируй три новости по шаблону:"
-            "\n📰 {Заголовок} — {Источник}, {Дата}.\n"
-            "{Короткое резюме}.\nСсылка: {URL}\nИдея для KD: {мысль}.\n\n"
+            "\n📰 {Заголовок} — {Источник}, {Дата}.\n\n"
+            "{Короткое резюме}.\n\nСсылка: {URL}\nИдея для KD: {мысль}.\n\n"
             "Материалы:\n" + "\n\n".join(articles)
         )
         completion = await asyncio.to_thread(
@@ -169,7 +181,7 @@ async def format_news(items: list[dict]) -> str:
             model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
-        return completion.choices[0].message.content.strip()
+        return ensure_news_spacing(completion.choices[0].message.content.strip())
     except Exception as exc:  # pragma: no cover
         return f"Не удалось сформировать новости: {exc}"
 
@@ -179,6 +191,23 @@ async def send_daily_news(context: ContextTypes.DEFAULT_TYPE) -> None:
     items = collect_news()
     text = await format_news(items)
     await context.bot.send_message(chat_id=context.job.chat_id, text=text)
+
+
+def schedule_daily_news(app, chat_id: int) -> None:
+    """Планирует ежедневную рассылку новостей, если доступна JobQueue."""
+    jq = app.job_queue
+    if jq is None:
+        return
+    jobs = app.bot_data.setdefault("news_jobs", set())
+    if chat_id in jobs:
+        return
+    jq.run_daily(
+        send_daily_news,
+        time=time(hour=10, minute=0, tzinfo=ZoneInfo("Europe/Moscow")),
+        chat_id=chat_id,
+        name=f"daily_news_{chat_id}",
+    )
+    jobs.add(chat_id)
 
 
 async def news_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -191,23 +220,24 @@ async def news_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
     except Exception:
         pass
+    # отправляем временное сообщение о подготовке новостей
+    prep_msg = await update.effective_chat.send_message("Подготавливаю новости...")
 
     # собираем новости и отправляем их в чат
     items = collect_news()
     text = await format_news(items)
     await update.effective_chat.send_message(text=text)
 
-    # регистрируем ежедневную рассылку, если ещё не сделано
-    jobs = context.application.bot_data.setdefault("news_jobs", set())
-    chat_id = update.effective_chat.id
-    if chat_id not in jobs:
-        context.application.job_queue.run_daily(
-            send_daily_news,
-            time=time(hour=10, minute=0, tzinfo=ZoneInfo("Europe/Moscow")),
-            chat_id=chat_id,
-            name=f"daily_news_{chat_id}",
+    # удаляем служебное сообщение
+    try:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id, message_id=prep_msg.message_id
         )
-        jobs.add(chat_id)
+    except Exception:
+        pass
+
+    # регистрируем ежедневную рассылку, если ещё не сделано
+    schedule_daily_news(context.application, update.effective_chat.id)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -226,16 +256,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["prompt_id"] = prompt_msg.message_id
 
     # регистрируем ежедневную отправку новостей для этого чата
-    jobs = context.application.bot_data.setdefault("news_jobs", set())
-    chat_id = update.effective_chat.id
-    if chat_id not in jobs:
-        context.application.job_queue.run_daily(
-            send_daily_news,
-            time=time(hour=10, minute=0, tzinfo=ZoneInfo("Europe/Moscow")),
-            chat_id=chat_id,
-            name=f"daily_news_{chat_id}",
-        )
-        jobs.add(chat_id)
+    schedule_daily_news(context.application, update.effective_chat.id)
     return WAITING_TEXT
 
 
