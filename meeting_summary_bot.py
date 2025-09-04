@@ -52,19 +52,36 @@ async def analyze_meeting(meeting_text: str) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Команда /analyze_meeting: просит прислать текст встречи."""
-    await update.message.reply_text("Пришлите полный текст встречи.")
-    return WAITING_TEXT
-
-
-async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обрабатывает текст встречи: удаляет его и присылает анализ."""
-    meeting_text = update.message.text
-    # удаляем сообщение пользователя
+    """Команда /analyze_meeting: удаляет команду и просит текст встречи."""
+    # удаляем сообщение с командой пользователя
     try:
         await update.message.delete()
     except Exception:
         pass  # игнорируем, если нет прав
+
+    # отправляем подсказку и сохраняем её id для последующего удаления
+    prompt_msg = await update.effective_chat.send_message("Пришлите полный текст встречи.")
+    context.user_data["prompt_id"] = prompt_msg.message_id
+    return WAITING_TEXT
+
+
+async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Обрабатывает текст встречи: удаляет сообщения и присылает анализ."""
+    meeting_text = update.message.text
+
+    # удаляем сообщение пользователя с текстом встречи
+    try:
+        await update.message.delete()
+    except Exception:
+        pass  # игнорируем, если нет прав
+
+    # удаляем ранее отправленную подсказку "Пришлите полный текст встречи"
+    prompt_id = context.user_data.pop("prompt_id", None)
+    if prompt_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=prompt_id)
+        except Exception:
+            pass
 
     summary = await analyze_meeting(meeting_text)
     await context.bot.send_message(
