@@ -62,6 +62,12 @@ async def analyze_meeting(meeting_text: str) -> str:
     except Exception as exc:  # pragma: no cover - проблемы сети/токена
         return f"Ошибка анализа: {exc}"
 
+async def send_long_message(bot, chat_id: int, text: str) -> None:
+    """Отправляет длинное сообщение частями, если оно превышает лимит Telegram."""
+    max_len = 4096
+    for i in range(0, len(text), max_len):
+        await bot.send_message(chat_id=chat_id, text=text[i : i + max_len])
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Команда /analyze_meeting: удаляет команду и просит текст встречи."""
     try:
@@ -103,10 +109,7 @@ async def received_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if context.user_data.pop("stopped", False):
         return ConversationHandler.END
 
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=summary
-    )
+    await send_long_message(context.bot, update.effective_chat.id, summary)
 
     processing_id = context.user_data.pop("processing_id", None)
     if processing_id:
