@@ -1,7 +1,9 @@
 import asyncio
 import os
 import tempfile
+from contextlib import suppress
 from io import BytesIO
+from itertools import cycle
 
 from telegram import Update
 from telegram.ext import (
@@ -12,6 +14,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.error import BadRequest
 
 from config import BOT_TOKEN, OPENAI_API_KEY, OPENAI_MODEL
 
@@ -157,7 +160,7 @@ async def cleanup_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def process_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE, meeting_text: str) -> int:
-    """Удаляет сообщения и запускает анализ встречи."""
+    """Удаляет сообщения, показывает прогресс и запускает анализ встречи."""
     try:
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
@@ -171,7 +174,37 @@ async def process_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE, me
     processing_msg = await update.effective_chat.send_message("Встреча обрабатывается...")
     context.user_data["processing_id"] = processing_msg.message_id
 
-    summary = ensure_block_spacing(await analyze_meeting(meeting_text))
+    analysis_task = asyncio.create_task(analyze_meeting(meeting_text))
+
+    async def refresh_processing_message() -> None:
+        """Обновляет текст индикатора обработки, чтобы было видно, что бот работает."""
+        for suffix in cycle([".", "..", "..."]):
+            if analysis_task.done():
+                break
+            await asyncio.sleep(5)
+            try:
+                await processing_msg.edit_text(f"Встреча обрабатывается{suffix}")
+            except BadRequest as err:
+                if "message is not modified" in str(err).lower():
+                    continue
+                break
+            except Exception:
+                break
+
+    status_task = asyncio.create_task(refresh_processing_message())
+
+    try:
+        raw_summary = await asyncio.wait_for(analysis_task, timeout=120)
+        summary = ensure_block_spacing(raw_summary)
+    except asyncio.TimeoutError:
+        analysis_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await analysis_task
+        summary = "Ошибка анализа: превышено время ожидания ответа. Попробуйте ещё раз позже."
+    finally:
+        status_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await status_task
 
     if context.user_data.pop("stopped", False):
         return ConversationHandler.END
