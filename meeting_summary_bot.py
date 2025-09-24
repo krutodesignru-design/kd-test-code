@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 from io import BytesIO
 
 from telegram import Update
@@ -18,6 +20,11 @@ try:
 except ImportError:  # pragma: no cover - дополнительная зависимость может отсутствовать
     DocxDocument = None
 
+try:
+    import textract
+except ImportError:  # pragma: no cover - дополнительная зависимость может отсутствовать
+    textract = None
+
 # Состояние диалога
 WAITING_TEXT = 1
 
@@ -28,7 +35,7 @@ def build_report_prompt(meeting_text: str) -> str:
         "Проанализируй текст встречи. Начни отчёт строкой: '📝 Отчёт по встрече "
         "<имя> - <ссылка>'. Имя и ссылку возьми из текста (если ссылки нет, поставь '-'). "
         "Между блоками вставляй пустую строку. Используй структуру:\n"
-        "1. Объект\n2. Состав семьи\n3. Цель клиента\n4. Ожидания\n5. Бюджет\n"
+        "1. Объект\n2. Состав семьи\n3. Цель клиента\n4. Ожидания\n5. Бюджет клиента\n"
         "6. Стоимость и тарифы (озвученные вами)\n7. Сроки\n8. Дополнительные моменты\n"
         "🔎 Боли клиента\n✅ Где дожал\n⚠️ Где не дожал\n\n"
         f"Текст встречи:\n{meeting_text}"
@@ -114,8 +121,25 @@ async def extract_document_text(update: Update, context: ContextTypes.DEFAULT_TY
         paragraphs = [p.text for p in doc.paragraphs if p.text]
         return "\n".join(paragraphs).strip()
 
+    if filename.endswith(".doc"):
+        if textract is None:
+            raise RuntimeError(
+                "Для обработки DOC установите пакет textract: pip install textract"
+            )
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".doc") as tmp:
+            tmp.write(bytes(file_bytes))
+            tmp_path = tmp.name
+        try:
+            text_bytes = await asyncio.to_thread(textract.process, tmp_path)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        return decode_text_file(text_bytes).strip()
+
     raise RuntimeError(
-        "Поддерживаются только файлы .txt и .docx. Пришлите текст встречи в одном из этих форматов."
+        "Поддерживаются только файлы .txt, .doc и .docx. Пришлите текст встречи в одном из этих форматов."
     )
 
 
