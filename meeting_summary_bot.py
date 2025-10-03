@@ -221,6 +221,29 @@ async def cleanup_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def process_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE, meeting_text: str) -> int:
     """Удаляет сообщения, показывает прогресс и запускает анализ встречи."""
+    text_length = len(meeting_text)
+    if text_length > 3000:
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id,
+            )
+        except Exception:
+            pass
+
+        await cleanup_prompt(update, context)
+
+        await update.effective_chat.send_message(
+            "Анализ отменён: текст встречи содержит"
+            f" {text_length} символов при лимите 3000. Сократите текст или отправьте файл."
+        )
+        prompt_msg = await update.effective_chat.send_message(
+            "Пришлите полный текст встречи (до 3000 символов) или приложите документ."
+            " Я готов к новому сообщению."
+        )
+        context.user_data["prompt_id"] = prompt_msg.message_id
+        return WAITING_TEXT
+
     try:
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
