@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import tempfile
 from contextlib import suppress
 from io import BytesIO
@@ -45,6 +46,65 @@ def build_report_prompt(meeting_text: str) -> str:
     )
 
 
+def extract_title_and_link(meeting_text: str) -> tuple[str, str]:
+    """Находит в тексте строку с описанием встречи и ссылку."""
+    lines = [line.strip() for line in meeting_text.splitlines() if line.strip()]
+    title = lines[0] if lines else "Неизвестная встреча"
+
+    link_match = re.search(r"https?://\S+", meeting_text)
+    link = link_match.group(0) if link_match else "-"
+    return title, link
+
+
+def extract_snippet(meeting_text: str, keywords: tuple[str, ...]) -> str:
+    """Возвращает фрагмент текста, содержащий один из ключевых слов."""
+    lower_text = meeting_text.lower()
+    for keyword in keywords:
+        idx = lower_text.find(keyword)
+        if idx != -1:
+            start = max(0, idx - 100)
+            end = min(len(meeting_text), idx + 200)
+            snippet = meeting_text[start:end].replace("\n", " ").strip()
+            return snippet or "Данных не найдено."
+    return "Данных не найдено."
+
+
+def build_fallback_summary(meeting_text: str, reason: str) -> str:
+    """Создаёт отчёт по встрече без использования модели OpenAI."""
+    title, link = extract_title_and_link(meeting_text)
+
+    sections = [
+        ("1. Объект", extract_snippet(meeting_text, ("объект", "квартира", "дом", "помещение"))),
+        ("2. Состав семьи", extract_snippet(meeting_text, ("семья", "прожива", "дет", "член"))),
+        ("3. Цель клиента", extract_snippet(meeting_text, ("цель", "нужно", "хочет", "задача"))),
+        ("4. Ожидания", extract_snippet(meeting_text, ("ожид", "рассчиты", "важно", "хотелось"))),
+        ("5. Бюджет клиента", extract_snippet(meeting_text, ("бюдж", "стоим", "финанс", "сумм"))),
+        (
+            "6. Стоимость и тарифы (озвученные вами)",
+            extract_snippet(meeting_text, ("тариф", "руб", "оплат", "стоимост")),
+        ),
+        ("7. Сроки", extract_snippet(meeting_text, ("срок", "день", "недел", "месяц"))),
+        (
+            "8. Дополнительные моменты",
+            extract_snippet(meeting_text, ("дополн", "ещё", "также", "важно")),
+        ),
+        ("🔎 Боли клиента", extract_snippet(meeting_text, ("боль", "опас", "страх", "сомнен"))),
+        ("✅ Где дожал", "Ручной анализ: отметьте сильные моменты презентации."),
+        ("⚠️ Где не дожал", "Ручной анализ: зафиксируйте, что можно усилить на следующей встрече."),
+    ]
+
+    parts = [f"📝 Отчёт по встрече {title} - {link}"]
+    for heading, body in sections:
+        parts.append(f"{heading}\n{body}")
+
+    parts.append(
+        "Примечание: автоматический анализ недоступен. Используйте данные выше как черновой конспект и перепроверьте вручную."
+        f" Причина: {reason}."
+    )
+
+    return "\n\n".join(parts)
+
+
 def ensure_block_spacing(text: str) -> str:
     """Добавляет пустую строку перед новым блоком отчёта."""
     lines = text.splitlines()
@@ -62,14 +122,14 @@ async def analyze_meeting(meeting_text: str) -> str:
     """Анализирует текст встречи и возвращает готовый отчёт."""
     api_key = OPENAI_API_KEY
     if not api_key:
-        return "Не удалось провести анализ: отсутствует OPENAI_API_KEY."
+        return build_fallback_summary(meeting_text, "не задан ключ OPENAI_API_KEY")
 
     try:
         import openai
     except ImportError:
-        return (
-            "Не удалось провести анализ: пакет openai не установлен. "
-            "Установите его командой: pip install openai"
+        return build_fallback_summary(
+            meeting_text,
+            "пакет openai не установлен (установите командой: pip install openai)",
         )
 
     try:
@@ -82,7 +142,7 @@ async def analyze_meeting(meeting_text: str) -> str:
         )
         return completion.choices[0].message.content.strip()
     except Exception as exc:  # pragma: no cover - проблемы сети/токена
-        return f"Ошибка анализа: {exc}"
+        return build_fallback_summary(meeting_text, f"не удалось получить ответ модели: {exc}")
 
 
 async def send_long_message(bot, chat_id: int, text: str) -> None:
